@@ -1,0 +1,17 @@
+name: ko-sales-reps
+services:
+  - name: web
+    github:
+      repo: MMTNM/ko-sales-reps
+      branch: main
+      deploy_on_push: true
+    build_command: npm run build
+    run_command: npm start
+    http_port: 8080
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "8080"
