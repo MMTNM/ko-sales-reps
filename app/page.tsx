@@ -1,65 +1,114 @@
-import Image from "next/image";
+export const dynamic = "force-dynamic";
 
-export default function Home() {
+import Link from "next/link";
+import getDb from "@/lib/db";
+import type { Lead } from "@/lib/types";
+import StatusBadge from "@/components/StatusBadge";
+import DashboardFilters from "@/components/DashboardFilters";
+
+type SearchParams = { from?: string; to?: string; rep?: string };
+
+export default function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
+  const db = getDb();
+  const allLeads = db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[];
+
+  // Collect distinct reps for the filter dropdown
+  const reps = [...new Set(allLeads.map((l) => l.assigned_rep).filter(Boolean) as string[])].sort();
+
+  // Apply filters
+  const { from, to, rep } = searchParams;
+  const fromDate = from ? new Date(from + "T00:00:00") : null;
+  const toDate = to ? new Date(to + "T23:59:59") : null;
+
+  const leads = allLeads.filter((l) => {
+    const created = new Date(l.created_at);
+    if (fromDate && created < fromDate) return false;
+    if (toDate && created > toDate) return false;
+    if (rep && l.assigned_rep !== rep) return false;
+    return true;
+  });
+
+  const total = leads.length;
+  const sold = leads.filter((l) => l.status === "sold").length;
+  const active = leads.filter((l) => !["sold", "lost"].includes(l.status)).length;
+  const doorsKnocked = leads.reduce((sum, l) => sum + (l.doors_knocked ?? 0), 0);
+  const recent = leads.slice(0, 5);
+  const isFiltered = from || to || rep;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-0.5">KO Roofing Sales Overview</p>
+        </div>
+        <Link
+          href="/leads/new"
+          className="px-4 py-2 rounded-md text-sm font-semibold text-black hover:opacity-90"
+          style={{ backgroundColor: "#d1b471" }}
+        >
+          + New Lead
+        </Link>
+      </div>
+
+      {/* Filters */}
+      <DashboardFilters reps={reps} />
+
+      {isFiltered && (
+        <p className="text-xs text-gray-400 -mt-4">
+          Showing {leads.length} lead{leads.length !== 1 ? "s" : ""}
+          {rep ? ` for ${rep}` : ""}
+          {from ? ` from ${from}` : ""}
+          {to ? ` to ${to}` : ""}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: "Total Leads", value: total, color: "text-gray-900" },
+          { label: "Active Pipeline", value: active, color: "text-blue-700" },
+          { label: "Sold", value: sold, color: "text-green-700" },
+          { label: "Doors Knocked", value: doorsKnocked, color: "text-purple-700" },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <p className="text-sm text-gray-500">{stat.label}</p>
+            <p className={`text-3xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-800">Recent Leads</h2>
+          <Link href="/leads" className="text-sm text-[#b89d5f] hover:underline">View all →</Link>
+        </div>
+        {recent.length === 0 ? (
+          <p className="px-5 py-8 text-center text-gray-400 text-sm">
+            No leads yet.{" "}
+            <Link href="/leads/new" className="text-[#b89d5f] underline">Create your first lead</Link>
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {recent.map((lead) => (
+              <li key={lead.id}>
+                <Link
+                  href={`/leads/${lead.id}`}
+                  className="flex items-center justify-between px-5 py-3 hover:bg-gray-50"
+                >
+                  <div>
+                    <p className="font-medium text-gray-900 text-sm">{lead.first_name} {lead.last_name}</p>
+                    <p className="text-xs text-gray-400">
+                      {lead.city ? `${lead.city}, ${lead.state ?? ""}` : lead.address ?? "No address"}
+                      {lead.territory ? ` · ${lead.territory}` : ""}
+                    </p>
+                  </div>
+                  <StatusBadge status={lead.status} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
