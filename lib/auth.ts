@@ -49,9 +49,6 @@ function toAppUser(row: {
 
 export async function ensureBootstrapOwner(): Promise<void> {
   if (!hasDatabaseUrl()) return;
-  const count = await queryOne<{ count: string }>("SELECT COUNT(*)::text as count FROM users");
-  if (Number(count?.count ?? 0) > 0) return;
-
   const username = process.env.KO_OWNER_USERNAME;
   const password = process.env.KO_OWNER_PASSWORD;
   const displayName = process.env.KO_OWNER_DISPLAY_NAME ?? "KO Owner";
@@ -61,7 +58,13 @@ export async function ensureBootstrapOwner(): Promise<void> {
   }
 
   await execute(
-    "INSERT INTO users (username, display_name, role, password_hash) VALUES ($1, $2, 'owner', $3)",
+    `INSERT INTO users (username, display_name, role, password_hash)
+     VALUES ($1, $2, 'owner', $3)
+     ON CONFLICT (username)
+     DO UPDATE SET
+       display_name = EXCLUDED.display_name,
+       role = 'owner',
+       password_hash = EXCLUDED.password_hash`,
     [username, displayName, hashPassword(password)]
   );
 }
