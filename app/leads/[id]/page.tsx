@@ -7,13 +7,16 @@ import type { Lead } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import LeadStatusUpdater from "@/components/LeadStatusUpdater";
 import DeleteLeadButton from "@/components/DeleteLeadButton";
+import { canAccessLead, requirePageUser } from "@/lib/auth";
 
 type Props = { params: Promise<{ id: string }> };
 
 export default async function LeadDetailPage({ params }: Props) {
+  const user = await requirePageUser();
   const { id } = await params;
   const lead = getDb().prepare("SELECT * FROM leads WHERE id = ?").get(id) as Lead | undefined;
   if (!lead) notFound();
+  if (!canAccessLead(user, lead.assigned_rep)) notFound();
 
   const field = (label: string, value: string | number | null | undefined) =>
     value !== null && value !== undefined && value !== "" ? (

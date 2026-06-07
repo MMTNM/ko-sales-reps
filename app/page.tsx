@@ -5,12 +5,16 @@ import getDb from "@/lib/db";
 import type { Lead } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import DashboardFilters from "@/components/DashboardFilters";
+import { requirePageUser } from "@/lib/auth";
 
 type SearchParams = Promise<{ from?: string; to?: string; rep?: string }>;
 
 export default async function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
+  const user = await requirePageUser();
   const db = getDb();
-  const allLeads = db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[];
+  const allLeads = user.role === "owner"
+    ? (db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[])
+    : (db.prepare("SELECT * FROM leads WHERE assigned_rep = ? ORDER BY created_at DESC").all(user.display_name) as Lead[]);
 
   // Collect distinct reps for the filter dropdown
   const reps = [...new Set(allLeads.map((l) => l.assigned_rep).filter(Boolean) as string[])].sort();
@@ -24,7 +28,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
     const created = new Date(l.created_at);
     if (fromDate && created < fromDate) return false;
     if (toDate && created > toDate) return false;
-    if (rep && l.assigned_rep !== rep) return false;
+    if (user.role === "owner" && rep && l.assigned_rep !== rep) return false;
     return true;
   });
 
@@ -33,7 +37,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
   const active = leads.filter((l) => !["sold", "lost"].includes(l.status)).length;
   const doorsKnocked = leads.reduce((sum, l) => sum + (l.doors_knocked ?? 0), 0);
   const recent = leads.slice(0, 5);
-  const isFiltered = from || to || rep;
+  const isFiltered = from || to || (user.role === "owner" ? rep : undefined);
 
   return (
     <div className="space-y-8">
@@ -52,7 +56,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
       </div>
 
       {/* Filters */}
-      <DashboardFilters reps={reps} />
+      {user.role === "owner" && <DashboardFilters reps={reps} />}
 
       {isFiltered && (
         <p className="text-xs text-gray-400 -mt-4">

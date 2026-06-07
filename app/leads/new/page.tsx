@@ -1,6 +1,8 @@
 import LeadForm from "@/components/LeadForm";
+import { requirePageUser } from "@/lib/auth";
 
-export default function NewLeadPage() {
+export default async function NewLeadPage() {
+  await requirePageUser();
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>

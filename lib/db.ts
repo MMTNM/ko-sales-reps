@@ -42,6 +42,27 @@ function getDb(): Database.Database {
     BEGIN
       UPDATE leads SET updated_at = datetime('now') WHERE id = NEW.id;
     END;
+
+    CREATE TABLE IF NOT EXISTS users (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      username      TEXT NOT NULL UNIQUE,
+      display_name  TEXT NOT NULL,
+      role          TEXT NOT NULL CHECK(role IN ('owner', 'rep')),
+      password_hash TEXT NOT NULL,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     INTEGER NOT NULL,
+      token_hash  TEXT NOT NULL UNIQUE,
+      expires_at  TEXT NOT NULL,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
   `);
 
   // Migrate: add columns introduced after initial schema

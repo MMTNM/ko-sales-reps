@@ -22,3 +22,12 @@ export interface Lead {
   created_at: string;
   updated_at: string;
 }
+
+export type UserRole = "owner" | "rep";
+
+export interface AppUser {
+  id: number;
+  username: string;
+  display_name: string;
+  role: UserRole;
+}

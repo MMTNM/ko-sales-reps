@@ -5,10 +5,14 @@ import getDb from "@/lib/db";
 import type { Lead } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import LeadRowMenu from "@/components/LeadRowMenu";
+import { requirePageUser } from "@/lib/auth";
 
-export default function LeadsPage() {
+export default async function LeadsPage() {
+  const user = await requirePageUser();
   const db = getDb();
-  const leads = db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[];
+  const leads = user.role === "owner"
+    ? (db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[])
+    : (db.prepare("SELECT * FROM leads WHERE assigned_rep = ? ORDER BY created_at DESC").all(user.display_name) as Lead[]);
 
   return (
     <div className="space-y-6">

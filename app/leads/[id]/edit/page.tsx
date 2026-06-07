@@ -5,13 +5,16 @@ import Link from "next/link";
 import getDb from "@/lib/db";
 import type { Lead } from "@/lib/types";
 import LeadForm from "@/components/LeadForm";
+import { canAccessLead, requirePageUser } from "@/lib/auth";
 
 type Props = { params: Promise<{ id: string }> };
 
 export default async function EditLeadPage({ params }: Props) {
+  const user = await requirePageUser();
   const { id } = await params;
   const lead = getDb().prepare("SELECT * FROM leads WHERE id = ?").get(id) as Lead | undefined;
   if (!lead) notFound();
+  if (!canAccessLead(user, lead.assigned_rep)) notFound();
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
