@@ -6,9 +6,9 @@ import type { Lead } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import DashboardFilters from "@/components/DashboardFilters";
 
-type SearchParams = { from?: string; to?: string; rep?: string };
+type SearchParams = Promise<{ from?: string; to?: string; rep?: string }>;
 
-export default function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
   const db = getDb();
   const allLeads = db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[];
 
@@ -16,7 +16,7 @@ export default function DashboardPage({ searchParams }: { searchParams: SearchPa
   const reps = [...new Set(allLeads.map((l) => l.assigned_rep).filter(Boolean) as string[])].sort();
 
   // Apply filters
-  const { from, to, rep } = searchParams;
+  const { from, to, rep } = await searchParams;
   const fromDate = from ? new Date(from + "T00:00:00") : null;
   const toDate = to ? new Date(to + "T23:59:59") : null;
 
