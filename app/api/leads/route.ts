@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { queryOne, queryRows } from "@/lib/db";
 import { createContact, createJob } from "@/lib/jobnimbus";
 import type { Lead } from "@/lib/types";
 import { requireRequestUser } from "@/lib/auth";
@@ -12,17 +12,16 @@ function errStatus(err: unknown): number {
 
 export async function GET(request: NextRequest) {
   try {
-    const user = requireRequestUser(request);
-    const db = getDb();
+    const user = await requireRequestUser(request);
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
     const leads = user.role === "owner"
       ? (status
-          ? db.prepare("SELECT * FROM leads WHERE status = ? ORDER BY created_at DESC").all(status)
-          : db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all())
+          ? await queryRows<Lead>("SELECT * FROM leads WHERE status = $1 ORDER BY created_at DESC", [status])
+          : await queryRows<Lead>("SELECT * FROM leads ORDER BY created_at DESC"))
       : (status
-          ? db.prepare("SELECT * FROM leads WHERE assigned_rep = ? AND status = ? ORDER BY created_at DESC").all(user.display_name, status)
-          : db.prepare("SELECT * FROM leads WHERE assigned_rep = ? ORDER BY created_at DESC").all(user.display_name));
+          ? await queryRows<Lead>("SELECT * FROM leads WHERE assigned_rep = $1 AND status = $2 ORDER BY created_at DESC", [user.display_name, status])
+          : await queryRows<Lead>("SELECT * FROM leads WHERE assigned_rep = $1 ORDER BY created_at DESC", [user.display_name]));
     return NextResponse.json(leads);
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: errStatus(err) });
@@ -31,7 +30,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = requireRequestUser(request);
+    const user = await requireRequestUser(request);
     const body = await request.json();
     const {
       first_name, last_name, email, phone, address, city, state, zip,
@@ -69,30 +68,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const db = getDb();
-    const result = db.prepare(`
-      INSERT INTO leads
-        (first_name, last_name, email, phone, address, city, state, zip,
-         roof_type, damage_type, notes, status, jobnimbus_contact_id,
-         jobnimbus_job_id, assigned_rep, latitude, longitude, territory)
-      VALUES
-        (@first_name, @last_name, @email, @phone, @address, @city, @state, @zip,
-         @roof_type, @damage_type, @notes, @status, @jobnimbus_contact_id,
-         @jobnimbus_job_id, @assigned_rep, @latitude, @longitude, @territory)
-    `).run({
-      first_name, last_name,
-      email: email ?? null, phone: phone ?? null,
-      address: address ?? null, city: city ?? null,
-      state: state ?? null, zip: zip ?? null,
-      roof_type: roof_type ?? null, damage_type: damage_type ?? null,
-      notes: notes ?? null, status,
-      jobnimbus_contact_id, jobnimbus_job_id,
-      assigned_rep: user.role === "owner" ? (assigned_rep ?? null) : user.display_name,
-      latitude: latitude ?? null, longitude: longitude ?? null,
-      territory: territory ?? null,
-    });
+    const lead = await queryOne<Lead>(
+      `INSERT INTO leads
+         (first_name, last_name, email, phone, address, city, state, zip,
+          roof_type, damage_type, notes, status, jobnimbus_contact_id,
+          jobnimbus_job_id, assigned_rep, latitude, longitude, territory)
+       VALUES
+         ($1, $2, $3, $4, $5, $6, $7, $8,
+          $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18)
+       RETURNING *`,
+      [
+        first_name,
+        last_name,
+        email ?? null,
+        phone ?? null,
+        address ?? null,
+        city ?? null,
+        state ?? null,
+        zip ?? null,
+        roof_type ?? null,
+        damage_type ?? null,
+        notes ?? null,
+        status,
+        jobnimbus_contact_id,
+        jobnimbus_job_id,
+        user.role === "owner" ? (assigned_rep ?? null) : user.display_name,
+        latitude ?? null,
+        longitude ?? null,
+        territory ?? null,
+      ]
+    );
 
-    const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(result.lastInsertRowid) as Lead;
+    if (!lead) {
+      throw new Error("Failed to create lead");
+    }
     return NextResponse.json(lead, { status: 201 });
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: errStatus(err) });

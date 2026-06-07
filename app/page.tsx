@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import getDb from "@/lib/db";
+import { queryRows } from "@/lib/db";
 import type { Lead } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import DashboardFilters from "@/components/DashboardFilters";
@@ -11,10 +11,9 @@ type SearchParams = Promise<{ from?: string; to?: string; rep?: string }>;
 
 export default async function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
   const user = await requirePageUser();
-  const db = getDb();
   const allLeads = user.role === "owner"
-    ? (db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[])
-    : (db.prepare("SELECT * FROM leads WHERE assigned_rep = ? ORDER BY created_at DESC").all(user.display_name) as Lead[]);
+    ? (await queryRows<Lead>("SELECT * FROM leads ORDER BY created_at DESC"))
+    : (await queryRows<Lead>("SELECT * FROM leads WHERE assigned_rep = $1 ORDER BY created_at DESC", [user.display_name]));
 
   // Collect distinct reps for the filter dropdown
   const reps = [...new Set(allLeads.map((l) => l.assigned_rep).filter(Boolean) as string[])].sort();

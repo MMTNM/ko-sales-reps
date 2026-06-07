@@ -2,11 +2,15 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { execute, queryOne, queryRows } from "@/lib/db";
 import type { AppUser, UserRole } from "@/lib/types";
 
 const SESSION_COOKIE = "ko_session";
 const SESSION_TTL_DAYS = 14;
+
+function hasDatabaseUrl(): boolean {
+  return Boolean(process.env.DATABASE_URL);
+}
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -43,10 +47,10 @@ function toAppUser(row: {
   };
 }
 
-export function ensureBootstrapOwner(): void {
-  const db = getDb();
-  const count = db.prepare("SELECT COUNT(*) as count FROM users").get() as { count: number };
-  if (count.count > 0) return;
+export async function ensureBootstrapOwner(): Promise<void> {
+  if (!hasDatabaseUrl()) return;
+  const count = await queryOne<{ count: string }>("SELECT COUNT(*)::text as count FROM users");
+  if (Number(count?.count ?? 0) > 0) return;
 
   const username = process.env.KO_OWNER_USERNAME;
   const password = process.env.KO_OWNER_PASSWORD;
@@ -56,18 +60,24 @@ export function ensureBootstrapOwner(): void {
     return;
   }
 
-  db.prepare(
-    "INSERT INTO users (username, display_name, role, password_hash) VALUES (?, ?, 'owner', ?)"
-  ).run(username, displayName, hashPassword(password));
+  await execute(
+    "INSERT INTO users (username, display_name, role, password_hash) VALUES ($1, $2, 'owner', $3)",
+    [username, displayName, hashPassword(password)]
+  );
 }
 
-export function authenticateUser(username: string, password: string): AppUser | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT id, username, display_name, role, password_hash FROM users WHERE username = ?")
-    .get(username) as
-    | { id: number; username: string; display_name: string; role: UserRole; password_hash: string }
-    | undefined;
+export async function authenticateUser(username: string, password: string): Promise<AppUser | null> {
+  if (!hasDatabaseUrl()) return null;
+  const row = await queryOne<{
+    id: number;
+    username: string;
+    display_name: string;
+    role: UserRole;
+    password_hash: string;
+  }>(
+    "SELECT id, username, display_name, role, password_hash FROM users WHERE username = $1",
+    [username]
+  );
 
   if (!row) return null;
   if (!verifyPassword(password, row.password_hash)) return null;
@@ -75,22 +85,27 @@ export function authenticateUser(username: string, password: string): AppUser | 
   return toAppUser(row);
 }
 
-export function issueSession(userId: number): string {
-  const db = getDb();
+export async function issueSession(userId: number): Promise<string> {
+  if (!hasDatabaseUrl()) {
+    throw new Error("DATABASE_URL is required");
+  }
   const token = createSessionToken();
   const tokenHash = hashToken(token);
   const expires = new Date();
   expires.setDate(expires.getDate() + SESSION_TTL_DAYS);
 
-  db.prepare("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-    .run(userId, tokenHash, expires.toISOString());
+  await execute("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)", [
+    userId,
+    tokenHash,
+    expires.toISOString(),
+  ]);
 
   return token;
 }
 
-export function clearSessionByToken(token: string): void {
-  const db = getDb();
-  db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashToken(token));
+export async function clearSessionByToken(token: string): Promise<void> {
+  if (!hasDatabaseUrl()) return;
+  await execute("DELETE FROM sessions WHERE token_hash = $1", [hashToken(token)]);
 }
 
 export function setSessionCookie(res: NextResponse, token: string): void {
@@ -117,29 +132,25 @@ export function clearSessionCookie(res: NextResponse): void {
   });
 }
 
-export function getUserFromSessionToken(token: string | null | undefined): AppUser | null {
-  if (!token) return null;
+export async function getUserFromSessionToken(token: string | null | undefined): Promise<AppUser | null> {
+  if (!token || !hasDatabaseUrl()) return null;
 
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT u.id, u.username, u.display_name, u.role
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND datetime(s.expires_at) > datetime('now')`
-    )
-    .get(hashToken(token)) as
-    | { id: number; username: string; display_name: string; role: UserRole }
-    | undefined;
+  const row = await queryOne<{ id: number; username: string; display_name: string; role: UserRole }>(
+    `SELECT u.id, u.username, u.display_name, u.role
+     FROM sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.token_hash = $1 AND s.expires_at > NOW()`,
+    [hashToken(token)]
+  );
 
   return row ? toAppUser(row) : null;
 }
 
 export async function getOptionalPageUser(): Promise<AppUser | null> {
-  ensureBootstrapOwner();
+  await ensureBootstrapOwner();
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
-  return getUserFromSessionToken(token);
+  return await getUserFromSessionToken(token);
 }
 
 export async function requirePageUser(): Promise<AppUser> {
@@ -154,51 +165,56 @@ export async function requireOwnerPageUser(): Promise<AppUser> {
   return user;
 }
 
-export function getRequestUser(request: NextRequest): AppUser | null {
-  ensureBootstrapOwner();
+export async function getRequestUser(request: NextRequest): Promise<AppUser | null> {
+  await ensureBootstrapOwner();
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  return getUserFromSessionToken(token);
+  return await getUserFromSessionToken(token);
 }
 
-export function requireRequestUser(request: NextRequest): AppUser {
-  const user = getRequestUser(request);
+export async function requireRequestUser(request: NextRequest): Promise<AppUser> {
+  const user = await getRequestUser(request);
   if (!user) {
     throw new Error("UNAUTHORIZED");
   }
   return user;
 }
 
-export function requireOwnerRequestUser(request: NextRequest): AppUser {
-  const user = requireRequestUser(request);
+export async function requireOwnerRequestUser(request: NextRequest): Promise<AppUser> {
+  const user = await requireRequestUser(request);
   if (user.role !== "owner") {
     throw new Error("FORBIDDEN");
   }
   return user;
 }
 
-export function createUser(input: {
+export async function createUser(input: {
   username: string;
   displayName: string;
   role: UserRole;
   password: string;
-}): AppUser {
-  const db = getDb();
-  const result = db
-    .prepare("INSERT INTO users (username, display_name, role, password_hash) VALUES (?, ?, ?, ?)")
-    .run(input.username, input.displayName, input.role, hashPassword(input.password));
+}): Promise<AppUser> {
+  if (!hasDatabaseUrl()) {
+    throw new Error("DATABASE_URL is required");
+  }
+  const user = await queryOne<{ id: number; username: string; display_name: string; role: UserRole }>(
+    `INSERT INTO users (username, display_name, role, password_hash)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, username, display_name, role`,
+    [input.username, input.displayName, input.role, hashPassword(input.password)]
+  );
 
-  const user = db
-    .prepare("SELECT id, username, display_name, role FROM users WHERE id = ?")
-    .get(result.lastInsertRowid) as { id: number; username: string; display_name: string; role: UserRole };
+  if (!user) {
+    throw new Error("Unable to create user");
+  }
 
   return toAppUser(user);
 }
 
-export function listUsers(): AppUser[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT id, username, display_name, role FROM users ORDER BY role DESC, display_name ASC")
-    .all() as { id: number; username: string; display_name: string; role: UserRole }[];
+export async function listUsers(): Promise<AppUser[]> {
+  if (!hasDatabaseUrl()) return [];
+  const rows = await queryRows<{ id: number; username: string; display_name: string; role: UserRole }>(
+    "SELECT id, username, display_name, role FROM users ORDER BY role DESC, display_name ASC"
+  );
 
   return rows.map(toAppUser);
 }

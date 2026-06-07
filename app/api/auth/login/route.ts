@@ -11,12 +11,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "username and password are required" }, { status: 400 });
     }
 
-    const user = authenticateUser(username, password);
+    const user = await authenticateUser(username, password);
     if (!user) {
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
 
-    const token = issueSession(user.id);
+    const token = await issueSession(user.id);
     const response = NextResponse.json({ user });
     setSessionCookie(response, token);
     return response;

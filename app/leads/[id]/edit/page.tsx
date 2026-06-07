@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import getDb from "@/lib/db";
+import { queryOne } from "@/lib/db";
 import type { Lead } from "@/lib/types";
 import LeadForm from "@/components/LeadForm";
 import { canAccessLead, requirePageUser } from "@/lib/auth";
@@ -12,7 +12,7 @@ type Props = { params: Promise<{ id: string }> };
 export default async function EditLeadPage({ params }: Props) {
   const user = await requirePageUser();
   const { id } = await params;
-  const lead = getDb().prepare("SELECT * FROM leads WHERE id = ?").get(id) as Lead | undefined;
+  const lead = await queryOne<Lead>("SELECT * FROM leads WHERE id = $1", [id]);
   if (!lead) notFound();
   if (!canAccessLead(user, lead.assigned_rep)) notFound();
 

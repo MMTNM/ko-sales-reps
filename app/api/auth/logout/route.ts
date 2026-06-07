@@ -3,7 +3,7 @@ import { clearSessionByToken, clearSessionCookie } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   const token = request.cookies.get("ko_session")?.value;
-  if (token) clearSessionByToken(token);
+  if (token) await clearSessionByToken(token);
 
   const response = NextResponse.json({ ok: true });
   clearSessionCookie(response);

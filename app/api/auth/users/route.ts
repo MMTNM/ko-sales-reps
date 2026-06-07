@@ -10,8 +10,8 @@ function errStatus(err: unknown): number {
 
 export async function GET(request: NextRequest) {
   try {
-    requireOwnerRequestUser(request);
-    return NextResponse.json(listUsers());
+    await requireOwnerRequestUser(request);
+    return NextResponse.json(await listUsers());
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: errStatus(err) });
   }
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requireOwnerRequestUser(request);
+    await requireOwnerRequestUser(request);
     const body = await request.json();
 
     const username = String(body?.username ?? "").trim();
@@ -34,11 +34,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "role must be owner or rep" }, { status: 400 });
     }
 
-    const user = createUser({ username, displayName, password, role });
+    const user = await createUser({ username, displayName, password, role });
     return NextResponse.json(user, { status: 201 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("UNIQUE constraint failed")) {
+    if (message.includes("UNIQUE constraint failed") || message.includes("duplicate key value")) {
       return NextResponse.json({ error: "That username already exists" }, { status: 409 });
     }
     return NextResponse.json({ error: message }, { status: errStatus(err) });

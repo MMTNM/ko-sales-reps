@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import getDb from "@/lib/db";
+import { queryRows } from "@/lib/db";
 import type { Lead } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import LeadRowMenu from "@/components/LeadRowMenu";
@@ -9,10 +9,9 @@ import { requirePageUser } from "@/lib/auth";
 
 export default async function LeadsPage() {
   const user = await requirePageUser();
-  const db = getDb();
   const leads = user.role === "owner"
-    ? (db.prepare("SELECT * FROM leads ORDER BY created_at DESC").all() as Lead[])
-    : (db.prepare("SELECT * FROM leads WHERE assigned_rep = ? ORDER BY created_at DESC").all(user.display_name) as Lead[]);
+    ? (await queryRows<Lead>("SELECT * FROM leads ORDER BY created_at DESC"))
+    : (await queryRows<Lead>("SELECT * FROM leads WHERE assigned_rep = $1 ORDER BY created_at DESC", [user.display_name]));
 
   return (
     <div className="space-y-6">

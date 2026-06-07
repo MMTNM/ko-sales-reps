@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { execute, queryOne } from "@/lib/db";
 import type { Lead } from "@/lib/types";
 import { canAccessLead, requireRequestUser } from "@/lib/auth";
 
@@ -13,9 +13,9 @@ function errStatus(err: unknown): number {
 
 export async function GET(req: NextRequest, { params }: Params) {
   try {
-    const user = requireRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await params;
-    const lead = getDb().prepare("SELECT * FROM leads WHERE id = ?").get(id) as Lead | undefined;
+    const lead = await queryOne<Lead>("SELECT * FROM leads WHERE id = $1", [id]);
     if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!canAccessLead(user, lead.assigned_rep)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -28,10 +28,9 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   try {
-    const user = requireRequestUser(request);
+    const user = await requireRequestUser(request);
     const { id } = await params;
-    const db = getDb();
-    const existingLead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id) as Lead | undefined;
+    const existingLead = await queryOne<Lead>("SELECT * FROM leads WHERE id = $1", [id]);
     if (!existingLead) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -58,10 +57,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
 
-    const setClauses = Object.keys(updates).map((k) => `${k} = @${k}`).join(", ");
-    db.prepare(`UPDATE leads SET ${setClauses} WHERE id = @id`).run({ ...updates, id });
+    const keys = Object.keys(updates);
+    const setClauses = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+    const values = keys.map((k) => updates[k]);
+    await execute(`UPDATE leads SET ${setClauses} WHERE id = $${keys.length + 1}`, [...values, id]);
 
-    const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id) as Lead;
+    const lead = await queryOne<Lead>("SELECT * FROM leads WHERE id = $1", [id]);
+    if (!lead) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json(lead);
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: errStatus(err) });
@@ -70,16 +74,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
 export async function DELETE(req: NextRequest, { params }: Params) {
   try {
-    const user = requireRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await params;
     if (user.role !== "owner") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const db = getDb();
-    if (!db.prepare("SELECT id FROM leads WHERE id = ?").get(id)) {
+    const existing = await queryOne<{ id: number }>("SELECT id FROM leads WHERE id = $1", [id]);
+    if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    db.prepare("DELETE FROM leads WHERE id = ?").run(id);
+    await execute("DELETE FROM leads WHERE id = $1", [id]);
     return new NextResponse(null, { status: 204 });
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: errStatus(err) });
